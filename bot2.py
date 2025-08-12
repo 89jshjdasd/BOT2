@@ -51,7 +51,7 @@ def keep_alive_pinger():
             print(f"🔁 Keep-alive ping: {response.status_code} | Next in 5 minutes")
         except Exception as e:
             print(f"⚠️ Keep-alive failed: {str(e)}")
-        time.sleep(300)  # Ping every 5 minutes
+        time.sleep(60)  # Ping every 5 minutes
 
 # ========================
 # FILE HANDLING
@@ -238,3 +238,4 @@ if __name__ == "__main__":
         print("\n🛑 Bot stopped by user")
     except Exception as e:
         print(f"🔥 Critical error: {traceback.format_exc()}")
+
