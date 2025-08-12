@@ -12,14 +12,17 @@ from instagrapi.exceptions import (
 )
 
 # ========================
-# CONFIGURATION (Environment Variables)
+# CONFIGURATION
 # ========================
 SESSION_FILE = "session.json"
-DELAY_RANGE = tuple(map(int, os.getenv('DELAY_RANGE', '60,120').split(',')))  # Default: 60-120s
-CYCLE_DELAY = int(os.getenv('CYCLE_DELAY', '300'))  # Default: 300s (5 min)
+SESSION_TXT = "session.txt"
+THREAD_FILE = "gc.txt"
+MESSAGE_FILE = "msg.txt"
+DELAY_RANGE = (60, 120)  # 1-2 minutes between messages
+CYCLE_DELAY = 300  # 5 minutes between cycles
 MAX_RETRIES = 3
 MAX_MESSAGE_LENGTH = 1000
-PORT = int(os.getenv('PORT', '10000'))  # Render requires port binding
+PORT = int(os.getenv("PORT", "10000"))  # Render's port binding requirement
 
 # ========================
 # FLASK SERVER (For port binding)
@@ -27,48 +30,76 @@ PORT = int(os.getenv('PORT', '10000'))  # Render requires port binding
 app = Flask(__name__)
 
 @app.route('/')
-def home():
-    """Simple health check endpoint"""
-    return "Instagram Bot is Running | Status: Active", 200
+def health_check():
+    """Health check endpoint for Render port binding"""
+    return "Instagram Bot is Active | Status: Running", 200
 
 def run_web_server():
     """Run Flask server in separate thread"""
     app.run(host='0.0.0.0', port=PORT)
 
 # ========================
-# BOT FUNCTIONS
+# FILE HANDLING
 # ========================
-def load_config():
-    """Load configuration from environment variables"""
-    config = {
-        'session_id': os.getenv('SESSION_ID'),
-        'thread_ids': [],
-        'message_text': ''
-    }
+def ensure_files_exist():
+    """Verify required files exist or create them from environment variables"""
+    # Create session.txt if environment variable exists
+    if "RENDER_SESSION_ID" in os.environ and not os.path.exists(SESSION_TXT):
+        with open(SESSION_TXT, "w") as f:
+            f.write(os.environ["RENDER_SESSION_ID"])
+        print(f"Created {SESSION_TXT} from environment variable")
     
-    # Validate session ID
-    if not config['session_id']:
-        print("❌ Error: SESSION_ID environment variable not set!")
-        exit(1)
+    # Create msg.txt if environment variable exists
+    if "RENDER_MESSAGE_TEXT" in os.environ and not os.path.exists(MESSAGE_FILE):
+        with open(MESSAGE_FILE, "w") as f:
+            f.write(os.environ["RENDER_MESSAGE_TEXT"])
+        print(f"Created {MESSAGE_FILE} from environment variable")
     
-    # Parse thread IDs
-    thread_ids_str = os.getenv('THREAD_IDS', '')
-    if thread_ids_str:
-        config['thread_ids'] = [tid.strip() for tid in thread_ids_str.split(',') if tid.strip()]
-    else:
-        print("❌ Error: THREAD_IDS environment variable not set!")
-        exit(1)
-    
-    # Get message content
-    config['message_text'] = os.getenv('MESSAGE_TEXT', '')[:MAX_MESSAGE_LENGTH]
-    if not config['message_text']:
-        print("❌ Error: MESSAGE_TEXT environment variable not set!")
-        exit(1)
-    
-    print(f"• Loaded {len(config['thread_ids'])} thread IDs")
-    print(f"• Message: {config['message_text'][:50]}...")
-    return config
+    # Create gc.txt if environment variable exists
+    if "RENDER_THREAD_IDS" in os.environ and not os.path.exists(THREAD_FILE):
+        with open(THREAD_FILE, "w") as f:
+            # Convert comma-separated string to line-separated
+            thread_ids = os.environ["RENDER_THREAD_IDS"].split(",")
+            f.write("\n".join(thread_ids))
+        print(f"Created {THREAD_FILE} from environment variable")
 
+def load_config():
+    """Load configuration from files with validation"""
+    # Ensure files exist
+    for file_path in [SESSION_TXT, THREAD_FILE, MESSAGE_FILE]:
+        if not os.path.exists(file_path):
+            print(f"❌ Error: {file_path} not found!")
+            exit(1)
+    
+    # Load session ID
+    with open(SESSION_TXT, "r") as f:
+        session_id = f.read().strip()
+    if not session_id:
+        print(f"❌ Error: {SESSION_TXT} is empty!")
+        exit(1)
+    
+    # Load thread IDs
+    with open(THREAD_FILE, "r") as f:
+        thread_ids = [line.strip() for line in f.readlines() if line.strip()]
+    if not thread_ids:
+        print(f"❌ Error: No valid thread IDs in {THREAD_FILE}!")
+        exit(1)
+    
+    # Load message text
+    with open(MESSAGE_FILE, "r", encoding="utf-8") as f:
+        message_text = f.read().strip()[:MAX_MESSAGE_LENGTH]
+    if not message_text:
+        print(f"❌ Error: {MESSAGE_FILE} is empty!")
+        exit(1)
+    
+    print(f"• Loaded session ID from {SESSION_TXT}")
+    print(f"• Loaded {len(thread_ids)} thread IDs from {THREAD_FILE}")
+    print(f"• Loaded message from {MESSAGE_FILE}")
+    return session_id, thread_ids, message_text
+
+# ========================
+# INSTAGRAM CLIENT
+# ========================
 def setup_client(session_id):
     """Initialize and authenticate Instagram client"""
     cl = Client()
@@ -78,7 +109,7 @@ def setup_client(session_id):
     if os.path.exists(SESSION_FILE):
         try:
             cl.load_settings(SESSION_FILE)
-            cl.get_timeline_feed()  # Test session
+            cl.get_timeline_feed()  # Test session validity
             print("✅ Session loaded successfully")
             return cl
         except (ClientLoginRequired, ChallengeRequired, LoginRequired):
@@ -95,6 +126,9 @@ def setup_client(session_id):
         traceback.print_exc()
         exit(1)
 
+# ========================
+# MESSAGE HANDLING
+# ========================
 def send_message(cl, message, thread_id, attempt=1):
     """Send message with error handling and retries"""
     try:
@@ -118,13 +152,19 @@ def send_message(cl, message, thread_id, attempt=1):
         print(f"🚨 Unexpected error: {traceback.format_exc()}")
         return False
 
-def bot_operation():
-    """Main bot operational loop"""
+# ========================
+# BOT OPERATION
+# ========================
+def run_bot():
+    """Main bot operation loop"""
     print("\n🚀 Starting Instagram Bot")
     print("----------------------------------")
     
-    config = load_config()
-    cl = setup_client(config['session_id'])
+    # Load configuration from files
+    session_id, thread_ids, message_text = load_config()
+    
+    # Initialize client
+    cl = setup_client(session_id)
     
     print("\n⚙️ Settings:")
     print(f"• Message delay: {DELAY_RANGE[0]}-{DELAY_RANGE[1]}s")
@@ -136,13 +176,13 @@ def bot_operation():
     while True:
         cycle += 1
         start_time = time.time()
-        success = 0
+        success_count = 0
         
         print(f"\n🌀 CYCLE #{cycle} STARTED")
-        for i, thread_id in enumerate(config['thread_ids'], 1):
-            print(f"[{i}/{len(config['thread_ids'])}] Sending to {thread_id}...")
-            if send_message(cl, config['message_text'], thread_id):
-                success += 1
+        for idx, thread_id in enumerate(thread_ids, 1):
+            print(f"[{idx}/{len(thread_ids)}] Sending to {thread_id}...")
+            if send_message(cl, message_text, thread_id):
+                success_count += 1
                 status = "✅ Success"
             else:
                 status = "❌ Failed"
@@ -153,7 +193,7 @@ def bot_operation():
         
         elapsed = int(time.time() - start_time)
         print(f"\n⏱️ CYCLE #{cycle} COMPLETE")
-        print(f"• Success rate: {success}/{len(config['thread_ids'])}")
+        print(f"• Success rate: {success_count}/{len(thread_ids)}")
         print(f"• Duration: {elapsed}s")
         print(f"⏳ Next cycle in {CYCLE_DELAY}s...")
         time.sleep(CYCLE_DELAY)
@@ -162,6 +202,9 @@ def bot_operation():
 # MAIN EXECUTION
 # ========================
 if __name__ == "__main__":
+    # Render compatibility: Create files from environment variables if needed
+    ensure_files_exist()
+    
     # Start web server in background thread
     web_thread = threading.Thread(target=run_web_server, daemon=True)
     web_thread.start()
@@ -169,7 +212,7 @@ if __name__ == "__main__":
     
     # Start bot in main thread
     try:
-        bot_operation()
+        run_bot()
     except KeyboardInterrupt:
         print("\n🛑 Bot stopped by user")
     except Exception as e:
