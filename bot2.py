@@ -3,6 +3,7 @@ import time
 import random
 import traceback
 import threading
+import requests
 from flask import Flask
 from instagrapi import Client
 from instagrapi.exceptions import (
@@ -23,6 +24,7 @@ CYCLE_DELAY = 300  # 5 minutes between cycles
 MAX_RETRIES = 3
 MAX_MESSAGE_LENGTH = 1000
 PORT = int(os.getenv("PORT", "10000"))  # Render's port binding requirement
+KEEP_ALIVE_URL = "https://your-service-name.onrender.com"  # CHANGE TO YOUR RENDER URL
 
 # ========================
 # FLASK SERVER (For port binding)
@@ -37,6 +39,19 @@ def health_check():
 def run_web_server():
     """Run Flask server in separate thread"""
     app.run(host='0.0.0.0', port=PORT)
+
+# ========================
+# KEEP-ALIVE MECHANISM
+# ========================
+def keep_alive_pinger():
+    """Ping our own service to prevent Render from sleeping"""
+    while True:
+        try:
+            response = requests.get(KEEP_ALIVE_URL)
+            print(f"🔁 Keep-alive ping: {response.status_code} | Next in 5 minutes")
+        except Exception as e:
+            print(f"⚠️ Keep-alive failed: {str(e)}")
+        time.sleep(300)  # Ping every 5 minutes
 
 # ========================
 # FILE HANDLING
@@ -169,6 +184,7 @@ def run_bot():
     print("\n⚙️ Settings:")
     print(f"• Message delay: {DELAY_RANGE[0]}-{DELAY_RANGE[1]}s")
     print(f"• Cycle delay: {CYCLE_DELAY}s")
+    print(f"• Keep-alive URL: {KEEP_ALIVE_URL}")
     print(f"• Press Ctrl+C to stop")
     print("----------------------------------")
     
@@ -209,6 +225,11 @@ if __name__ == "__main__":
     web_thread = threading.Thread(target=run_web_server, daemon=True)
     web_thread.start()
     print(f"🌐 Web server running on port {PORT}")
+    
+    # Start keep-alive pinger
+    pinger_thread = threading.Thread(target=keep_alive_pinger, daemon=True)
+    pinger_thread.start()
+    print(f"♻️ Keep-alive started for {KEEP_ALIVE_URL}")
     
     # Start bot in main thread
     try:
