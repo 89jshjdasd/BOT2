@@ -20,14 +20,14 @@ SESSION_TXT = "session.txt"
 THREAD_FILE = "gc.txt"
 MESSAGE_FILE = "msg.txt"
 DELAY_RANGE = (60, 120)  # 1-2 minutes between messages
-CYCLE_DELAY = 300  # 5 minutes between cycles
+CYCLE_DELAY = 30  # 5 minutes between cycles
 MAX_RETRIES = 3
 MAX_MESSAGE_LENGTH = 1000
 PORT = int(os.getenv("PORT", "10000"))  # Render's port binding requirement
-KEEP_ALIVE_INTERVAL = 300  # Ping every 5 minutes (Render sleeps after 15 minutes idle)
+KEEP_ALIVE_URL = "https://bot2-tqol.onrender.com"  # CHANGE TO YOUR RENDER URL
 
 # ========================
-# FLASK SERVER
+# FLASK SERVER (For port binding)
 # ========================
 app = Flask(__name__)
 
@@ -41,36 +41,17 @@ def run_web_server():
     app.run(host='0.0.0.0', port=PORT)
 
 # ========================
-# SELF-KEEP-ALIVE MECHANISM
+# KEEP-ALIVE MECHANISM
 # ========================
-def self_pinger():
+def keep_alive_pinger():
     """Ping our own service to prevent Render from sleeping"""
     while True:
         try:
-            # Get Render public URL from environment
-            public_url = os.getenv('RENDER_EXTERNAL_URL')
-            if not public_url:
-                print("⚠️ RENDER_EXTERNAL_URL not set - keep-alive disabled")
-                return
-                
-            # Try both HTTP and HTTPS endpoints
-            for protocol in ['https://', 'http://']:
-                url = f"{protocol}{public_url}"
-                try:
-                    response = requests.get(url, timeout=10)
-                    print(f"♻️ Keep-alive to {url}: {response.status_code}")
-                except requests.exceptions.SSLError:
-                    print(f"🔒 SSL error for {url} - trying without verification")
-                    response = requests.get(url, verify=False, timeout=10)
-                    print(f"♻️ Keep-alive (no-verify) to {url}: {response.status_code}")
-                except Exception as e:
-                    print(f"⚠️ Keep-alive failed for {url}: {str(e)}")
-            
-            print(f"⏳ Next keep-alive in {KEEP_ALIVE_INTERVAL//60} minutes")
+            response = requests.get(KEEP_ALIVE_URL)
+            print(f"🔁 Keep-alive ping: {response.status_code} | Next in 5 minutes")
         except Exception as e:
-            print(f"🔥 Critical keep-alive error: {str(e)}")
-        finally:
-            time.sleep(KEEP_ALIVE_INTERVAL)
+            print(f"⚠️ Keep-alive failed: {str(e)}")
+        time.sleep(60)  # Ping every 5 minutes
 
 # ========================
 # FILE HANDLING
@@ -203,7 +184,7 @@ def run_bot():
     print("\n⚙️ Settings:")
     print(f"• Message delay: {DELAY_RANGE[0]}-{DELAY_RANGE[1]}s")
     print(f"• Cycle delay: {CYCLE_DELAY}s")
-    print(f"• Keep-alive interval: {KEEP_ALIVE_INTERVAL}s")
+    print(f"• Keep-alive URL: {KEEP_ALIVE_URL}")
     print(f"• Press Ctrl+C to stop")
     print("----------------------------------")
     
@@ -245,11 +226,10 @@ if __name__ == "__main__":
     web_thread.start()
     print(f"🌐 Web server running on port {PORT}")
     
-    # Start self-pinger after 30 seconds (allow server to start)
-    time.sleep(30)
-    pinger_thread = threading.Thread(target=self_pinger, daemon=True)
+    # Start keep-alive pinger
+    pinger_thread = threading.Thread(target=keep_alive_pinger, daemon=True)
     pinger_thread.start()
-    print(f"♻️ Self-keep-alive started (interval: {KEEP_ALIVE_INTERVAL}s)")
+    print(f"♻️ Keep-alive started for {KEEP_ALIVE_URL}")
     
     # Start bot in main thread
     try:
@@ -258,3 +238,5 @@ if __name__ == "__main__":
         print("\n🛑 Bot stopped by user")
     except Exception as e:
         print(f"🔥 Critical error: {traceback.format_exc()}")
+
+
