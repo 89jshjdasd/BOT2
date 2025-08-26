@@ -19,8 +19,8 @@ SESSION_FILE = "session.json"
 SESSION_TXT = "session.txt"
 THREAD_FILE = "gc.txt"
 MESSAGE_FILE = "msg.txt"
-DELAY_RANGE = (60, 120)  # 1-2 minutes between messages
-CYCLE_DELAY = 30  # 5 minutes between cycles
+DELAY_RANGE = (100, 250)  # 1-2 minutes between messages
+CYCLE_DELAY = 240  # 5 minutes between cycles
 MAX_RETRIES = 3
 MAX_MESSAGE_LENGTH = 1000
 PORT = int(os.getenv("PORT", "10000"))  # Render's port binding requirement
@@ -238,5 +238,6 @@ if __name__ == "__main__":
         print("\n🛑 Bot stopped by user")
     except Exception as e:
         print(f"🔥 Critical error: {traceback.format_exc()}")
+
 
 
